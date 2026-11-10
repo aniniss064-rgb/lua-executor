@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Lua Executor</title>
+<style>
+:root{--bg:#0f0f0f;--text:#e0e0e0;--accent:#00c853;--error:#ff5252;--code-bg:#121212;--border:#2a2a2a}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,Roboto,sans-serif}
+body{display:flex;flex-direction:column;overflow:hidden}
+main{flex:1;display:flex;flex-direction:column;overflow:hidden;padding:8px;gap:8px;min-height:0}
+#code{flex:1.4;width:100%;min-height:0;background:var(--code-bg);color:#d4d4d4;border:1px solid var(--border);border-radius:12px;padding:12px;font-family:Consolas,monospace;font-size:14px;line-height:1.45;resize:none;outline:none}
+.buttons{display:flex;gap:8px;flex-shrink:0}
+button{flex:1;padding:12px 6px;border:none;border-radius:12px;font-size:.95rem;font-weight:600;background:#2a2a2a;color:var(--text)}
+button:active{transform:scale(.97)}
+#run{background:var(--accent);color:#000}
+#output{flex:1;min-height:0;background:var(--code-bg);border:1px solid var(--border);border-radius:12px;padding:12px;font-family:Consolas,monospace;font-size:13px;line-height:1.45;overflow-y:auto;white-space:pre-wrap;word-break:break-word;color:#ce9178}
+.error{color:var(--error)}
+.info{color:#888}
+</style>
+</head>
+<body>
+<main>
+  <textarea id="code" spellcheck="false" placeholder="Écris ton code Lua ici..."></textarea>
+  <div class="buttons">
+    <button id="run">▶ Exécuter</button>
+    <button id="clear">Effacer</button>
+    <button id="example">Exemple</button>
+  </div>
+  <div id="output"><span class="info">La sortie apparaîtra ici...</span></div>
+</main>
+
+<script src="fengari-web.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const codeEl=$("code"),outputEl=$("output");
+const exampleCode=`-- Exemple simple
+print("Bonjour depuis ton téléphone !")
+
+local function factorielle(n)
+  if n <= 1 then return 1 end
+  return n * factorielle(n - 1)
+end
+
+print("5! =", factorielle(5))
+
+for i = 1, 5 do
+  print("Compteur :", i)
+end
+`;
+
+function setOutput(text,isError){
+  outputEl.innerHTML="";
+  const s=document.createElement("span");
+  if(isError)s.className="error";else if(!text)s.className="info";
+  s.textContent=text||"(aucune sortie)";
+  outputEl.appendChild(s);
+  outputEl.scrollTop=0;
+}
+
+function runLua(){
+  if(typeof fengari==="undefined"){setOutput("Moteur Lua introuvable.",true);return}
+  const code=codeEl.value;
+  if(!code.trim()){setOutput("Le code est vide.",true);return}
+  try{
+    const{lua,lauxlib,lualib,to_luastring}=fengari;
+    const L=lauxlib.luaL_newstate();
+    lualib.luaL_openlibs(L);
+    lua.lua_newtable(L);
+    lua.lua_setglobal(L,to_luastring("__print_buffer"));
+    const override=`function print(...)
+      local n=select("#",...)
+      local t={}
+      for i=1,n do t[i]=tostring(select(i,...)) end
+      __print_buffer[#__print_buffer+1]=table.concat(t,"\\t")
+    end`;
+    let st=lauxlib.luaL_dostring(L,to_luastring(override));
+    if(st!==lua.LUA_OK){setOutput("Erreur interne: "+lua.lua_tojsstring(L,-1),true);lua.lua_close(L);return}
+    st=lauxlib.luaL_dostring(L,to_luastring(code));
+    const lines=[];
+    lua.lua_getglobal(L,to_luastring("__print_buffer"));
+    const len=lua.lua_rawlen(L,-1);
+    for(let i=1;i<=len;i++){
+      lua.lua_rawgeti(L,-1,i);
+      lines.push(lua.lua_tojsstring(L,-1));
+      lua.lua_pop(L,1);
+    }
+    lua.lua_pop(L,1);
+    if(st!==lua.LUA_OK){
+      const err=lua.lua_tojsstring(L,-1);
+      setOutput((lines.length?lines.join("\n")+"\n":"")+err,true);
+    }else{
+      setOutput(lines.join("\n"));
+    }
+    lua.lua_close(L);
+  }catch(e){setOutput("Erreur: "+e.message,true)}
+}
+
+try{codeEl.value=localStorage.getItem("lua_code")||exampleCode}catch(e){codeEl.value=exampleCode}
+codeEl.addEventListener("input",()=>{try{localStorage.setItem("lua_code",codeEl.value)}catch(e){}});
+$("run").addEventListener("click",runLua);
+$("clear").addEventListener("click",()=>{codeEl.value="";try{localStorage.setItem("lua_code","")}catch(e){};setOutput("Code effacé.")});
+$("example").addEventListener("click",()=>{codeEl.value=exampleCode;try{localStorage.setItem("lua_code",exampleCode)}catch(e){}});
+</script>
+</body>
+  </html>
