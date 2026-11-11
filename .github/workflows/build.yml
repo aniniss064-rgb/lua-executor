@@ -1,0 +1,37 @@
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Telecharger le moteur Lua
+        run: |
+          mkdir -p src/main/assets
+          curl -L -o src/main/assets/fengari-web.js https://cdn.jsdelivr.net/npm/fengari-web@0.1.4/dist/fengari-web.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Accepter les licences Android
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Compiler
+        run: |
+          set +e
+          gradle assembleDebug --no-daemon --console=plain > build.log 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then
+            msg=$(grep -E "^e: |error:|What went wrong|Execution failed|Manifest|> " build.log | head -15 | tr '\n' ' ' | cut -c1-900)
+            echo "::error title=ERREUR COMPILATION::$msg"
+            tail -40 build.log
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LuaExecutor-apk
+          path: build/outputs/apk/debug/*.apk
